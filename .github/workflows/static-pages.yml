@@ -1,0 +1,110 @@
+name: Deploy Static Pages to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      # Dọn sạch toàn bộ file không theo git + thư mục _site
+      - name: Clean workspace & _site
+        run: |
+          git clean -fdx
+          rm -rf _site && mkdir -p _site
+
+      # Copy nội dung bên trong chat_bot vào _site (không copy cả folder)
+      - name: Copy content from chat_bot directory (only inside, not folder)
+        run: |
+          if [ -d "chat_bot" ]; then
+            rsync -a --delete --exclude='.git' chat_bot/ _site/
+            echo "Copied all content from chat_bot into _site/"
+          else
+            echo "Thư mục chat_bot không tồn tại"
+          fi
+
+      # Copy index.html ở ngoài root vào _site
+      - name: Copy main index page
+        run: |
+          if [ -f "index.html" ]; then
+            cp index.html _site/
+            echo "Copied main index.html"
+          fi
+
+      # Copy privacy policy page
+      - name: Copy privacy policy page
+        run: |
+          if [ -f "privacy-and-cookies-policy/index.html" ]; then
+            mkdir -p _site/privacy-and-cookies-policy
+            cp privacy-and-cookies-policy/index.html _site/privacy-and-cookies-policy/
+            echo "Copied privacy policy page"
+          fi
+
+      # Copy terms of use page
+      - name: Copy terms of use page
+        run: |
+          if [ -f "terms-of-use/index.html" ]; then
+            mkdir -p _site/terms-of-use
+            cp terms-of-use/index.html _site/terms-of-use/
+            echo "Copied terms of use page"
+          fi
+
+      # Ngăn GitHub Pages (Jekyll) bỏ qua file/dir bắt đầu bằng "_"
+      - name: Add .nojekyll
+        run: |
+          touch _site/.nojekyll
+
+      # Fail-fast nếu lỡ có thư mục/tệp chat_bot trong _site
+      - name: Guardrail - Fail if chat_bot exists in _site
+        run: |
+          if [ -e "_site/chat_bot" ]; then
+            echo "::error::'_site' không được chứa 'chat_bot'. Dừng build."
+            exit 1
+          fi
+
+      # Debug: hiển thị cấu trúc cuối cùng
+      - name: Debug - List final structure
+        run: |
+          echo "Final _site structure:"
+          find _site -maxdepth 3 -type f | sort
+          echo ""
+          ls -la _site/
+
+      # Upload artifact để deploy
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "_site"
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
